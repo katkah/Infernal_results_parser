@@ -125,7 +125,43 @@ def open_and_extract_genomic_files(directory_path):
             df = df_file 
     return df
 
-#parsovat argumenty if __mane args
+def open_and_extract_alignment_files(directory_path, df):
+    # Check if the directory exists
+    if not os.path.exists(directory_path):
+        print(f"Directory '{directory_path}' does not exist.")
+        sys.exit(1)
+    
+    # List all files in the directory
+    files = os.listdir(directory_path)
+    
+    # Filter files that end with "genomic-alignment"
+    alignment_files = [file for file in files if file.endswith('genomic-alignment')]
+    
+    if not alignment_files:
+        print(f"No files with the 'genomic-alignment' extension found in '{directory_path}'.")
+        return   
+    
+    #loop over rows of df, open result_{model}_{GCA}genomic-alignment
+    
+    
+    
+# Function to calculate new_start and new_end based on the strand
+def calculate_new_coordinates(row, region_length=200):
+    if row['strand'] == '+':
+        row['new_start'] = int(row['seq_from']) - region_length
+        row['new_end'] = int(row['seq_to']) + region_length
+    elif row['strand'] == '-':
+        row['new_start'] = int(row['seq_from']) + region_length
+        row['new_end'] = int(row['seq_to']) - region_length
+        
+    #Set new_start or new_end to the beginning if it is beyond plausible coordinates
+    if row['new_start'] <= 0:
+        row['new_start'] = 1
+    if row['new_end'] <= 0:
+        row['new_end'] = 1
+    return row
+    
+
 # Replace 'your_directory_path' with the actual path of the directory you want to process
 def main():
 
@@ -140,15 +176,25 @@ def main():
     result_file = sys.argv[3]       
 
     df = open_and_extract_genomic_files(directory_path)
+
     df_taxonomy = open_and_extract_taxonomy(taxonomy_file)
 
     # Merge genomic file with taxonomy based on GCA
     df = pd.merge(df, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna(0)
 
+    # Add columns with coordinates of extended regions
+    df = df.apply(calculate_new_coordinates, axis=1)
+    
+    # Add columns infernal_seq, SS_cons from files ending with "genomic-alignment" 
+    df = open_and_extract_alignment_files(directory_path, df)
+        
     if df.empty: 
         print('Infernal did not find any hits!')
     else:
         df.to_csv(result_file, index=False)
+
+
+
 
 if __name__ == "__main__":
     main()
