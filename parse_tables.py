@@ -38,7 +38,8 @@ def parse_genomic_file_name(file_name):
     """
     # Split the file name based on underscores
     components = file_name.split('_')
-    full_name = f"GCA_{components[4:]}"
+    full_name = components[3:]
+    full_name = '_'.join(full_name)
     full_name = full_name.replace("genomic.csv", "genomic.fna")
 
     # Extract relevant information based on the position of elements
@@ -95,7 +96,7 @@ def extract_info_from_alignment_file(alignment_file, df):
         with open(alignment_file, 'r') as file:
             for line in file:              
                 if line.startswith(search_string):
-                # Split the line based on sarch_string and save the second part as 'alignment'
+                # Split the line based on search_string and save the second part as 'alignment'
                     alignment_value = line.split(search_string)[1].strip()
                     df.at[index, 'alignment'] = alignment_value
                     
@@ -182,18 +183,30 @@ def extract_genomic_ali_files(directory_path):
         else:
             df = df_file 
     return df
+
+def extract_sequence(multifasta_file, target):
+    sequence = ""
+    in_target_sequence = False
+
+    with open(multifasta_file, 'r') as file:
+        for line in file:
+            if line.startswith(f">{target}"):
+                in_target_sequence = True
+                continue
+            elif in_target_sequence and line.startswith(">"):
+                in_target_sequence = False
+                break
+            elif in_target_sequence:
+                sequence += line.strip()
+
+    return sequence
     
 def get_max_length(row,directory_database_path):
-    assembly_file = row['full_GCA_name']
-    assembly_file = os.path.join(directory_path, alignment_file)
-    target = row['target_name']
-    target = f">{taget}"
-    
-    with open(assembly_file,'r') as file:
-        for line in lines:
-            if line.startswith(target):
-    
-   
+    assembly_file = os.path.join(directory_database_path, row['full_GCA_name'])
+    target = f">{row['target_name']}"
+    sequence = extract_sequence(assembly_file, target)
+    return len(sequence)
+
 # Function to calculate new_start and new_end based on the strand
 def calculate_new_coordinates(row, region_length,directory_database_path):
     if row['strand'] == '+':
@@ -217,7 +230,29 @@ def calculate_new_coordinates(row, region_length,directory_database_path):
         row['new_end'] > max_length
         
     return row
+ 
+ #def reverse_complement
+ 
+def add_extended_region(df,directory_database_path):
+    for index, row in df.iterrows():
+        
+        extended_region = pd.NA
+        
+        target = f">{row['target_name']}"
+        
+        assembly_file = row['full_GCA_name']
+        assembly_file = os.path.join(directory_database_path, assembly_file)
+        
+        sequence = extract_sequence(assembly_file, target)
+        
+        if row['strand'] == "+":
+            extended_region = sequence[row['new_start']:row['new_end']]
+        if row['strand'] == "-":
+            extended_region = sequence[row['new_end']:row['new_start']]
+        
+        df.at[index, 'extended_region'] = extended_region     
     
+    return df
 
 # Replace 'your_directory_path' with the actual path of the directory you want to process
 def main():
@@ -241,10 +276,11 @@ def main():
     # Merge genomic file with taxonomy based on GCA
     df = pd.merge(df, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')
 
+    
     # Add columns with coordinates of extended regions
     df = df.apply(calculate_new_coordinates, axis=1, args=(region_extend_length,directory_database_path,))
     
-    #df = add_extended_region(df) 
+    df = add_extended_region(df) 
         
     if df.empty: 
         print('Infernal did not find any hits in any of the analyzed genomes!')
