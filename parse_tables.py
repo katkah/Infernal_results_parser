@@ -2,6 +2,72 @@ import os
 import csv
 import pandas as pd
 import sys
+import subprocess
+from Bio import SeqIO
+
+
+
+def process_genomic_files(database_dir, result_dir):
+    # Get a list of genomic.bed files in result_dir
+    bed_files = [file for file in os.listdir(result_dir) if file.endswith("genomic.bed")]
+
+    # Dictionary to store the results
+    results = {}
+    
+    # Iterate over each genomic.bed file
+    for bed_file in bed_files:
+        # Construct the corresponding genomic.fna file name
+        genomic_fna_file = bed_file.replace("genomic.bed", "genomic.fna")
+        
+
+        
+        # Build the full paths for input and output files
+        input_genomic_fna = os.path.join(database_dir, genomic_fna_file)
+        #output_genomic_fasta = os.path.join(result_dir, bed_file.replace("genomic.bed", "genomic.fasta"))
+
+        # Construct the subprocess command
+        
+        cmd = f"seqtk subseq {input_genomic_fna} {os.path.join(result_dir, bed_file)}"
+        
+        print(f"running {cmd}")
+        # Execute the subprocess command and capture the output
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, error = process.communicate()
+
+        # Check if the command was successful
+        if process.returncode == 0:
+            # Store the output in the results dictionary
+            results[bed_file] = output.decode('utf-8')
+        else:
+            # Print an error message if the command failed
+            print(f"Error processing {bed_file}: {error.decode('utf-8')}")
+    
+    return results
+
+def parse_seqtk_results(results, df, extend_region):
+    for k in results.keys():
+        full_gca_name = k.replace(".bed", ".fna")
+        records = results[k].split('>')
+        # If the file starts with '>', the first record will be empty
+        if records[0] == '':
+            records = records[1:]
+        # There is a header and a sequence in each record. The sequence might be spread on more lines divided by "\n". The sequence might be also missing.
+        for record in records:
+            parts = record.strip().split("\n")
+            header = parts[0]
+            #sequence parts[1:]
+            if len(p) == 1:
+                seq = "Unable to extract sequence"
+            else:
+                seq = ''.join(parts[1:])                        
+            target_name = header.split(":")[0]
+            coordinates = header.split(":")[1]
+            seq_from_extend = coordinates.split('-')[0]
+            seq_to_extend = coordinates.split('-')[1]
+            
+            #TODO make columns seq_from_extend, seq_to_extend before 
+
+
 
 
 def open_and_extract_taxonomy(file_path):
@@ -184,55 +250,9 @@ def extract_genomic_ali_files(directory_path):
             df = df_file 
     return df
 
-def extract_sequence(multifasta_file, target):
-    sequence = ""
-    in_target_sequence = False
 
-    with open(multifasta_file, 'r') as file:
-        for line in file:
-            if line.startswith(f">{target}"):
-                in_target_sequence = True
-                continue
-            elif in_target_sequence and line.startswith(">"):
-                in_target_sequence = False
-                break
-            elif in_target_sequence:
-                sequence += line.strip()
 
-    return sequence
-    
-def get_max_length(row,directory_database_path):
-    assembly_file = os.path.join(directory_database_path, row['full_GCA_name'])
-    target = f">{row['target_name']}"
-    sequence = extract_sequence(assembly_file, target)
-    return len(sequence)
-
-# Function to calculate new_start and new_end based on the strand
-def calculate_new_coordinates(row, region_length,directory_database_path):
-    if row['strand'] == '+':
-        row['new_start'] = int(row['seq_from']) - region_length
-        row['new_end'] = int(row['seq_to']) + region_length
-    elif row['strand'] == '-':
-        row['new_start'] = int(row['seq_from']) + region_length
-        row['new_end'] = int(row['seq_to']) - region_length
-    
-    # Get how long the sequence is - The end of the sequence is max possible coordinate
-    max_length = get_max_length(row,directory_database_path)
-        
-    #Set new_start or new_end to the beginning if it is beyond plausible coordinates
-    if row['new_start'] <= 0:
-        row['new_start'] = 1
-    if row['new_end'] <= 0:
-        row['new_end'] = 1
-    if row['new_start'] > max_length:
-        row['new_start'] = max_length
-    if row['new_end'] > max_length:
-        row['new_end'] > max_length
-        
-    return row
- 
- #def reverse_complement
- 
+"""
 def add_extended_region(df,directory_database_path):
     for index, row in df.iterrows():
         
@@ -253,21 +273,85 @@ def add_extended_region(df,directory_database_path):
         df.at[index, 'extended_region'] = extended_region     
     
     return df
+"""
 
-# Replace 'your_directory_path' with the actual path of the directory you want to process
+#Function creates coordinates.bed one GCA file, saves it to result_dir
+def save_dataframe_as_bed(bed_filename, df, result_dir, extend_region):
+
+
+    bed_filepath = os.path.join(result_dir, bed_filename)
+    
+    # Create a copy of the selected columns to avoid modifying the original DataFrame
+    selected_df = df.copy()
+
+    #Convert columns to numeric type
+    selected_df['seq_from'] = pd.to_numeric(selected_df['seq_from'], errors='coerce')
+    selected_df['seq_to'] = pd.to_numeric(selected_df['seq_to'], errors='coerce')
+    
+    # Check the strand column and swap seq_from and seq_to if strand is minus
+    minus_strand_mask = selected_df['strand'] == '-'
+    selected_df.loc[minus_strand_mask, ['seq_from', 'seq_to']] = selected_df.loc[minus_strand_mask, ['seq_to', 'seq_from']].values
+    
+    # Subtract 1 from the 'seq_from' column for seqtk to work properly
+    selected_df['seq_from'] = selected_df['seq_from'] - 1 - extend_region
+    if selected_df['seq_from'] < 0:
+        selected_df['seq_from'] == 0
+    selected_df['seq_to'] = selected_df['seq_to'] + extend_region
+       
+    
+    # Save the dataframe to the bed file without header and columns tab delimited
+    selected_df.to_csv(bed_filepath, header=False, index=False, sep='\t')
+    
+
+    
+    return 
+
+#Function creates coordinates.bed for all GCA files
+def process_gca_files(df, directory_database_path, result_dir, extend_region ):
+    # Create list of unique GCA files    
+    GCA_list =  df['full_GCA_name'].unique()    
+    # Get targets for each GCA file
+    for gca in GCA_list:        
+
+        # Check if directory_database_path exists
+        if not os.path.exists(directory_database_path):
+            print(f"Directory '{directory_database_path}' does not exist.")
+            sys.exit(1)
+        
+        # Check if GCA file exists
+        files = os.listdir(directory_database_path)       
+        gca_files = [file for file in files if file.endswith('genomic.fna')]   
+        file_path = os.path.join(directory_database_path, gca)      
+        if gca not in gca_files:
+            print(f"file {gca_file} does not exist!")
+        else:
+            print(f"Processing file: {file_path}")
+            selected_columns = ["target_name","seq_from","seq_to", "strand", "full_GCA_name"]            
+            targets = df.loc[df['full_GCA_name'] == gca,selected_columns]
+            full = df.loc[df['full_GCA_name'] == gca, ["targed_name"]]
+            # Change "genomic.fna" to "genomic.bed" in the full_GCA_name
+            
+            save_dataframe_as_bed(gca.replace("genomic.fna", "genomic.bed"), targets, result_dir, extend_region)
+            save_dataframe_as_bed(gca.replace(".fna", "_full.bed"), targets, result_dir, 0) #save whole sequence to count the length
+                
+    return     
+
+
+
 def main():
 
     # Check if the correct number of arguments is provided
     if len(sys.argv) != 6:
-        print("Usage: python parse_tables.py path_to_directory_with_infernal_results path_to_taxonomy_file region_extend_length path_to_directory_with_database_sequences name_result_file ")
+        print("Usage: python parse_tables.py infernal_results_dir taxonomy_file region_extend_length database_sequences_dir path_where_to_save_results")
         sys.exit(1)
         
     # Extracting command line arguments
     directory_path = sys.argv[1]
     taxonomy_file = sys.argv[2]
-    region_extend_length = int(sys.argv[3])
-    directory_database_path = sys.argv[4] 
-    result_file = sys.argv[5]
+    extend_region = int(sys.argv[3])
+    database_dir = sys.argv[4] 
+    result_dir = sys.argv[5]
+    result_file = os.path.join(result_dir, "infernal_result_python.csv")
 
     df = extract_genomic_ali_files(directory_path)
 
@@ -275,12 +359,22 @@ def main():
 
     # Merge genomic file with taxonomy based on GCA
     df = pd.merge(df, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')
-
+       
+    # Process the unique GCA files
+    process_gca_files(df, database_dir, result_dir, extend_region)
     
+    # Run seqtk commands
+    results = process_genomic_files(database_dir, result_dir)
+    
+    print(results)
+    
+    # Parse seqtk results 
+    #df = parse_seqtk_results(df, result_dir)
     # Add columns with coordinates of extended regions
-    df = df.apply(calculate_new_coordinates, axis=1, args=(region_extend_length,directory_database_path,))
-    
-    df = add_extended_region(df) 
+    #df = df.apply(calculate_new_coordinates, axis=1, args=(region_extend_length, relevant_sequences))
+
+    #Add column with extended region. Should "-" strand be reverse complemented?
+    #df = add_extended_region(df,directory_database_path)
         
     if df.empty: 
         print('Infernal did not find any hits in any of the analyzed genomes!')
