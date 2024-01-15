@@ -3,8 +3,21 @@ import csv
 import pandas as pd
 import sys
 import subprocess
-from Bio import SeqIO
 
+def reverse_complement(dna_string):
+    complement_dict = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
+
+    reversed_dna = dna_string[::-1]
+    reverse_complement_dna = ''
+
+    for base in reversed_dna:
+        if base.upper() in complement_dict:
+            complement_base = complement_dict[base.upper()]
+            reverse_complement_dna += complement_base if base.isupper() else complement_base.lower()
+        else:
+            reverse_complement_dna += base
+
+    return reverse_complement_dna
 
 
 def process_genomic_files(database_dir, result_dir):
@@ -43,7 +56,7 @@ def process_genomic_files(database_dir, result_dir):
             print(f"Error processing {bed_file}: {error.decode('utf-8')}")
     
     return results
-
+"""
 def parse_seqtk_results(results, df, extend_region):
     for k in results.keys():
         full_gca_name = k.replace(".bed", ".fna")
@@ -67,7 +80,7 @@ def parse_seqtk_results(results, df, extend_region):
             
             #TODO make columns seq_from_extend, seq_to_extend before 
 
-
+"""
 
 
 def open_and_extract_taxonomy(file_path):
@@ -148,6 +161,7 @@ def extract_info_from_genomic_file(file_path,parsed_info):
     df['model'] = parsed_info['model']
     df['GCA'] = parsed_info ['assembly']
     df['full_GCA_name'] = parsed_info['full_GCA_name']
+    df['number'] = pd.NA
 
     return df   
 
@@ -222,8 +236,12 @@ def extract_genomic_ali_files(directory_path):
         print(f"No files with the 'genomic-alignment' extension found in '{directory_path}'.")
         return
 
-    # Open and extract information from each genomic file and correspondent alignment file, save it to a dataframe
-    df=None
+    # Open and extract information from each genomic file and correspondent alignment file, save it to two dataframes (hits and maybe)
+    df_hits_all = None
+    df_maybe_all = None
+    #Save number of hits and maybe for each GCA file to report at the end
+    gca_number_hits = {'full_GCA_name': [], 'number_of_hits' : [], 'number_of_possible_hits':[]} 
+ 
     for file_name in genomic_files:
     
         # Extract info from genomic file name e.g. {'model': 'U1', 'assembly': 'GCA_015342455.1'}
@@ -233,22 +251,51 @@ def extract_genomic_ali_files(directory_path):
         file_path = os.path.join(directory_path, file_name)
         df_file = extract_info_from_genomic_file(file_path, parsed_info)
         
-        #Extract content of alignment file
-        
+        # Divide the DataFrame into two based on the "inc" column
+        df_hits = df_file[df_file['inc'] == '!'].copy()
+        df_maybe = df_file[df_file['inc'] != '!'].copy()
+      
+        #Extract content of alignment file for df_hits     
         alignment_file = file_name.replace("genomic.csv", "genomic-alignment")
         alignment_path = os.path.join(directory_path, alignment_file)
         if alignment_file not in alignment_files:
             print(f"file {alignment_file} does not exist!")
         else:
-            df_file = extract_info_from_alignment_file(alignment_path, df_file)
-            
-        # Concatenate df and df_file along rows
-        if df is not None:
-            df = pd.concat([df, df_file], axis=0)
+            df_hits = extract_info_from_alignment_file(alignment_path, df_hits)
+        
+        # Count number of hits
+        gca_number_hits['full_GCA_name'].append(parsed_info['full_GCA_name'])
+        gca_number_hits['number_of_hits'].append(len(df_hits))       
+        gca_number_hits['number_of_possible_hits'].append(len(df_maybe))
+     
+        # Sorting the DataFrame by the "E-value" column in descending order
+        df_hits.sort_values(by='E-value', ascending=False, inplace=True)    
+        df_maybe.sort_values(by='E-value', ascending=False, inplace=True) 
+               
+        # Change "number" with order information
+        for index,  row in df_hits.iterrows():
+            df_hits.at[index, 'number'] = index + 1
+        
+        # Number can't be int because of NaN values in the column      
+        for index, row in df_maybe.iterrows():
+            df_maybe.at[index, 'number'] = index + 1 
+        
+        # Concatenate df_hits_all and df_hits along rows
+        if df_hits_all is not None:
+            df_hits_all = pd.concat([df_hits_all, df_hits], axis=0)
         # If the first file is being parsed, create df 
         else:
-            df = df_file 
-    return df
+            df_hits_all = df_hits 
+
+        # Concatenate df_maybe_all and df_maybe along rows
+        if df_maybe_all is not None:
+            df_maybe_all = pd.concat([df_maybe_all, df_maybe], axis=0)
+        # If the first file is being parsed, create df 
+        else:
+            df_maybe_all = df_maybe
+        
+    gca_number_hits = pd.DataFrame(gca_number_hits)    
+    return df_hits_all, df_maybe_all, gca_number_hits
 
 
 
@@ -274,7 +321,7 @@ def add_extended_region(df,directory_database_path):
     
     return df
 """
-
+"""
 #Function creates coordinates.bed one GCA file, saves it to result_dir
 def save_dataframe_as_bed(bed_filename, df, result_dir, extend_region):
 
@@ -295,7 +342,7 @@ def save_dataframe_as_bed(bed_filename, df, result_dir, extend_region):
     # Subtract 1 from the 'seq_from' column for seqtk to work properly
     selected_df['seq_from'] = selected_df['seq_from'] - 1 - extend_region
     if selected_df['seq_from'] < 0:
-        selected_df['seq_from'] == 0
+        selected_df['seq_from'] = 0
     selected_df['seq_to'] = selected_df['seq_to'] + extend_region
        
     
@@ -305,7 +352,8 @@ def save_dataframe_as_bed(bed_filename, df, result_dir, extend_region):
 
     
     return 
-
+"""   
+"""
 #Function creates coordinates.bed for all GCA files
 def process_gca_files(df, directory_database_path, result_dir, extend_region ):
     # Create list of unique GCA files    
@@ -335,6 +383,81 @@ def process_gca_files(df, directory_database_path, result_dir, extend_region ):
             save_dataframe_as_bed(gca.replace(".fna", "_full.bed"), targets, result_dir, 0) #save whole sequence to count the length
                 
     return     
+"""
+
+def read_result(seqtk_result):
+    parts = seqtk_result.strip().split("\n")
+    header = parts[0]
+
+    if len(parts) == 1:
+        seq = "Unable to extract sequence"
+    else:
+        seq = ''.join(parts[1:])    
+                            
+    #target_name = header.split(":")[0]
+    coordinates = header.split(":")[1]
+    seq_from_extend = coordinates.split('-')[0]
+    seq_to_extend = coordinates.split('-')[1]
+    
+    return seq_from_extend, seq_to_extend, seq
+
+def call_seqtk(row, database_dir, result_dir, extend_region):
+    gca =  row['full_GCA_name']    
+    gca_path = os.path.join(database_dir, gca)
+    files = os.listdir(database_dir)
+    if gca not in files:
+        print(f"file {gca} does not exist!")
+        
+    bed_filename = "tmp.bed"
+    bed_filepath = os.path.join(result_dir, bed_filename)
+    
+    if row['strand'] == '-':
+        seq_from = int(row['seq_to'])
+        seq_to = int(row['seq_from'])
+    else:
+        seq_from = int(row['seq_from'])
+        seq_to = int(row['seq_to'])
+        
+    seq_from = seq_from -1 - extend_region
+    if seq_from < 0:
+        seq_from = 0
+    seq_to = seq_to + extend_region
+
+
+    data = [row['target_name'], seq_from, seq_to]
+
+    with open(bed_filepath, 'w', encoding='UTF8', newline='') as f:
+        writer = csv.writer(f,delimiter = '\t')
+        writer.writerow(data)
+    
+    # Build the full paths for input files
+    input_genomic_fna = os.path.join(database_dir, gca)
+    
+    # Construct the subprocess command
+    cmd = f"seqtk subseq {input_genomic_fna} {bed_filepath}"
+    
+    # Execute the subprocess command and capture the output
+    process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, error = process.communicate()
+
+    seqtk_result = ""
+    # Check if the command was successful
+    if process.returncode == 0:
+        # Store the output in the results dictionary
+        seqtk_result = output.decode('utf-8')
+    else:
+        # Print an error message if the command failed
+        print(f"Error processing {bed_file}: {error.decode('utf-8')}")
+    
+    sfrom, sto, s = read_result(seqtk_result)
+    # Swap sfrom and sto, reverse complement the sequence
+    if row['strand'] == '-':
+        a = sfrom
+        sfrom = sto
+        sto = a
+        s = reverse_complement(s)
+           
+    return sfrom, sto, s
 
 
 
@@ -351,37 +474,41 @@ def main():
     extend_region = int(sys.argv[3])
     database_dir = sys.argv[4] 
     result_dir = sys.argv[5]
-    result_file = os.path.join(result_dir, "infernal_result_python.csv")
+    result_file_hits = os.path.join(result_dir, "infernal_result_hits.csv")
+    result_file_maybe = os.path.join(result_dir, "infernal_result_possible_hits.csv")
+    result_file_gca = os.path.join(result_dir, "infernal_result_report.csv")
 
-    df = extract_genomic_ali_files(directory_path)
+    if not os.path.exists(database_dir):
+        print(f"Directory '{database_dir}' does not exist.")
+        sys.exit(1) 
 
-    df_taxonomy = open_and_extract_taxonomy(taxonomy_file)
+    df_hits, df_maybe, gca_number_hits = extract_genomic_ali_files(directory_path)
 
     # Merge genomic file with taxonomy based on GCA
-    df = pd.merge(df, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')
-       
-    # Process the unique GCA files
-    process_gca_files(df, database_dir, result_dir, extend_region)
-    
-    # Run seqtk commands
-    results = process_genomic_files(database_dir, result_dir)
-    
-    print(results)
-    
-    # Parse seqtk results 
-    #df = parse_seqtk_results(df, result_dir)
-    # Add columns with coordinates of extended regions
-    #df = df.apply(calculate_new_coordinates, axis=1, args=(region_extend_length, relevant_sequences))
-
-    #Add column with extended region. Should "-" strand be reverse complemented?
-    #df = add_extended_region(df,directory_database_path)
+    df_taxonomy = open_and_extract_taxonomy(taxonomy_file)
+    df_hits = pd.merge(df_hits, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')
+    df_maybe = pd.merge(df_maybe, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')    
         
-    if df.empty: 
+    # Call seqtk
+    for index, row in df_hits.iterrows():   
+        seq_from, seq_to, seq = call_seqtk(row,database_dir, result_dir, extend_region)
+        df_hits.at[index, 'seq_from_extend'] = seq_from 
+        df_hits.at[index, 'seq_to_extend'] = seq_to
+        df_hits.at[index, 'extend_sequence'] = seq
+        
+    # Merge with gca_number_hits
+    df_hits = pd.merge(df_hits, gca_number_hits, on='full_GCA_name', how='right', suffixes=('_df', '_gca')).fillna('NA')
+    df_maybe = pd.merge(df_maybe, gca_number_hits, on='full_GCA_name', how='right', suffixes=('_df', '_gca')).fillna('NA')
+    
+    df_h = df_hits.sort_values(['E-value'], ascending=False).groupby('full_GCA_name')
+    df_m = df_maybe.sort_values(['E-value'], ascending=False).groupby('full_GCA_name') 
+     
+    if df_hits.empty: 
         print('Infernal did not find any hits in any of the analyzed genomes!')
     else:
-        df.to_csv(result_file, index=False, na_rep='NA')
+        df_h.to_csv(result_file_hits, index=False, na_rep='NA')
+        df_m.to_csv(result_file_maybe, index=False, na_rep='NA')
     
-
 if __name__ == "__main__":
     main()
 
