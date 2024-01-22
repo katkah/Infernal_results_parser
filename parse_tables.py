@@ -214,7 +214,7 @@ def extract_genomic_ali_files(directory_path):
     df_hits_all = None
     df_maybe_all = None
     #Save number of hits and maybe for each GCA file to report at the end
-    gca_number_hits = {'full_GCA_name': [], 'number_of_hits' : [], 'number_of_possible_hits':[]} 
+    gca_number_hits = {'full_GCA_name': [], 'model': [], 'number_of_hits' : [], 'number_of_possible_hits':[]} 
  
     for file_name in genomic_files:
     
@@ -239,6 +239,7 @@ def extract_genomic_ali_files(directory_path):
         
         # Count number of hits
         gca_number_hits['full_GCA_name'].append(parsed_info['full_GCA_name'])
+        gca_number_hits['model'].append(parsed_info['model'])
         gca_number_hits['number_of_hits'].append(len(df_hits))       
         gca_number_hits['number_of_possible_hits'].append(len(df_maybe))
     
@@ -345,7 +346,18 @@ def call_seqtk(row, database_dir, result_dir, extend_region):
            
     return sfrom, sto, s
 
-
+def add_number_column(df):
+    # Get unique tuples (gca, model)
+    names = list(df.groupby(['full_GCA_name', 'model']).groups)
+    # Add column number with the order info
+    for name in names:
+        # Subset a single group (gca, model)
+        subset = (df["full_GCA_name"] == name[0]) & (df["model"] == name[1])
+        # Get how long the group is
+        length = len(df[subset])
+        # Save order info
+        df.loc[subset, "number"] = list(range(1,length+1))
+    return df
 
 def main():
 
@@ -383,25 +395,25 @@ def main():
         df_hits.at[index, 'extend_sequence'] = seq
         
     # Merge with gca_number_hits
-    df_hits = pd.merge(df_hits, gca_number_hits, on='full_GCA_name', how='left', suffixes=('_df', '_gca')).fillna('NA')
-    df_maybe = pd.merge(df_maybe, gca_number_hits, on='full_GCA_name', how='left', suffixes=('_df', '_gca')).fillna('NA')
+    df_hits = pd.merge(df_hits, gca_number_hits, on=['full_GCA_name','model'], how='left', suffixes=('_df', '_gca')).fillna('NA')
+    df_maybe = pd.merge(df_maybe, gca_number_hits, on=['full_GCA_name','model'], how='left', suffixes=('_df', '_gca')).fillna('NA')
     
     df_hits['E-value'] = df_hits['E-value'].astype(float)
     df_maybe['E-value'] = df_maybe['E-value'].astype(float)
-    df_h = df_hits.sort_values(by=["full_GCA_name", "E-value"], ascending=[True, False])
-    df_m = df_maybe.sort_values(by=["full_GCA_name", "E-value"], ascending=[True, False])
+    df_h = df_hits.sort_values(by=["full_GCA_name", "model", "E-value"], ascending=[True, True, False])
+    df_m = df_maybe.sort_values(by=["full_GCA_name", "model", "E-value"], ascending=[True, True, False])
     
     df_h.reset_index()
     df_m.reset_index()
     
-    # Add column number with the order info
-    names = df_h["full_GCA_name"].unique()
-    for name in names:
-        length = len(df_h[df_h["full_GCA_name"] == name])
-        df_h.loc[df_h['full_GCA_name'] == name, "number"] = list(range(1,length+1))
-    
+    df_h = add_number_column(df_h)
+    df_m = add_number_column(df_m)
+        
     if df_h.empty: 
         print('Infernal did not find any hits in any of the analyzed genomes!')
+    #remove first column it is index
+    df_h = df_h.drop(df_h.columns[0], axis=1)
+    df_m = df_m.drop(df_m.columns[0], axis=1)
     df_h.to_csv(result_file_hits, index=False, na_rep='NA')
     df_m.to_csv(result_file_maybe, index=False, na_rep='NA')
     
