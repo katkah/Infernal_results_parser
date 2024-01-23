@@ -3,6 +3,7 @@ import csv
 import pandas as pd
 import sys
 import subprocess
+import argparse
 
 def reverse_complement(dna_string):
     complement_dict = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
@@ -357,24 +358,35 @@ def add_number_column(df):
         length = len(df[subset])
         # Save order info
         df.loc[subset, "number"] = list(range(1,length+1))
-    return df
+    return df 
 
 def main():
 
-    # Check if the correct number of arguments is provided
-    if len(sys.argv) != 6:
-        print("Usage: python parse_tables.py infernal_results_dir taxonomy_file region_extend_length database_sequences_dir path_where_to_save_results")
-        sys.exit(1)
-        
-    # Extracting command line arguments
-    directory_path = sys.argv[1]
-    taxonomy_file = sys.argv[2]
-    extend_region = int(sys.argv[3])
-    database_dir = sys.argv[4] 
-    result_dir = sys.argv[5]
+
+    # Usage: python3 parse_tables.py -i infernal_results_dir -t taxonomy_file -r region_extend_length -d database_sequences_dir -o output_dir 
+    # Create ArgumentParser object
+    parser = argparse.ArgumentParser(description="Tool processing infernal results to a comprehensive csv table.")
+    
+    # Add arguments
+    parser.add_argument('-i', '--infernal_results_dir', required=True, help='Directory containing infernal results ending "genomic.csv" and "genomic-alignemnt" to be processed')
+    parser.add_argument('-t', '--taxonomy_file', required=True, help='A file containing taxonomy in a csv format')
+    parser.add_argument('-r', '--region_extend_length', required=True, type=int, help='Number of nucleotides to extend the hit region both ways, e.g. 200') 
+    parser.add_argument('-d', '--database_sequence_dir', required=True, help='Directory containing database sequences ending "genomic.fna"')   
+    parser.add_argument('-o', '--output_dir', required=True, help='Output directory where to save the result')
+
+    # Parse command-line arguments
+    args = parser.parse_args()
+    
+    # Access arguments
+    directory_path = args.infernal_results_dir
+    taxonomy_file = args.taxonomy_file
+    extend_region = args.region_extend_length
+    database_dir = args.database_sequence_dir
+    result_dir = args.output_dir
     result_file_hits = os.path.join(result_dir, "infernal_result_hits.csv")
     result_file_maybe = os.path.join(result_dir, "infernal_result_possible_hits.csv")
     result_file_gca = os.path.join(result_dir, "infernal_result_report.csv")
+
 
     if not os.path.exists(database_dir):
         print(f"Directory '{database_dir}' does not exist.")
@@ -386,7 +398,8 @@ def main():
     df_taxonomy = open_and_extract_taxonomy(taxonomy_file)
     df_hits = pd.merge(df_hits, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')
     df_maybe = pd.merge(df_maybe, df_taxonomy, on='GCA', how='left', suffixes=('_df', '_taxonomy')).fillna('NA')    
-        
+
+    print("Running seqtk subseq. It might take a while ...")        
     # Call seqtk
     for index, row in df_hits.iterrows():   
         seq_from, seq_to, seq = call_seqtk(row,database_dir, result_dir, extend_region)
@@ -425,6 +438,16 @@ def main():
     filtered_df = gca_number_hits[gca_number_hits["number_of_hits"] == 0]
     with open(result_file_gca,'w') as fp:
         fp.write(template.format(filtered_df.to_csv(index=False)))
+    
+    # Clean the temporary file
+    bed_filename = "tmp.bed"
+    bed_filepath = os.path.join(result_dir, bed_filename)
+
+    # Check if the file exists before attempting to delete it
+    if os.path.exists(bed_filepath):
+        os.remove(bed_filepath)
+    
+    print("All done!")
     
     
 if __name__ == "__main__":
