@@ -14,10 +14,12 @@
 output_csv="taxonomy.csv"
 
 # Set the query
-query='"Oxalidales"[Organism] AND (latest[filter] AND all[filter] NOT anomalous[filter])'
+#query='"Oxalidales"[Organism] AND (latest[filter] AND all[filter] NOT anomalous[filter])'
+query='"Coleoptera"[Organism] AND "representative genome"[filter]'
+
 
 # Set the output directory
-output_directory="/full/path/to/infernal/database/"
+output_directory="full/path/to/database/"
 ######################################################################################
 
 # Create output_directory
@@ -34,7 +36,7 @@ esearch -db assembly -query "${query}" | esummary | xtract -pattern DocumentSumm
 taxonomy_ranks=("Superkingdom" "Kingdom" "Phylum" "Class" "Order" "Family" "Genus")
 
 # Add the header to CSV
-echo "superkingdom,kingdom,phylum,class,order,family,genus,ScientificName,GCA" > "${output_csv}"
+echo "superkingdom,kingdom,phylum,class,order,family,genus,ScientificName,GCA,taxid" > "${output_csv}"
 
 #Notes:
 #Examples of how to use edirect utilities:
@@ -49,7 +51,6 @@ echo "superkingdom,kingdom,phylum,class,order,family,genus,ScientificName,GCA" >
 for row in $(cat taxid_line.txt); do
     taxid=$(echo "$row" | cut -d ';' -f 1)
     line=$(echo "${row#*;}")
-    #$line=$(echo $row | cut -d ';' -f 2)
     
     echo "Processing line: $line"
     echo "TaxID: $taxid"
@@ -64,36 +65,79 @@ for row in $(cat taxid_line.txt); do
     for rank in "${taxonomy_ranks[@]}"; do
         taxonomy_info=$(esearch -db taxonomy -query "${taxid} [taxID]" | efetch -format native -mode xml | xtract -pattern Taxon -block "*/Taxon" -if Rank -equals "${rank}" -element ScientificName)
 
-        # Check if taxonomy_info is empty and set it to "NA" if true
+        # Check if taxonomy_info is empty and set it to "NA" if true; that means the download was not successful even after the x-th attempt
+        max_attempts=100
+        attempts=0
+
+        while [ "$attempts" -lt "$max_attempts" ]; do
+            # If taxonomy_info length not zero then fetching info was success and break the loop
+            if [ -n "$taxonomy_info" ]; then
+                break
+            fi
+            taxonomy_info=$(esearch -db taxonomy -query "${taxid} [taxID]" | efetch -format native -mode xml | xtract -pattern Taxon -block "*/Taxon" -if Rank -equals "${rank}" -element ScientificName)
+            attempts=$((attempts + 1))
+        done
+        # If taxonomy_info length is zero then it was unsuccess even after the x-th attempt and set it to NA
         if [ -z "$taxonomy_info" ]; then
             taxonomy_info="NA"
+            echo "fetching taxonomy_info for rank ${rank} and ${taxid} was unsuccessful"
         fi
+
         # Echo without the newline character at the end
         echo -n "${taxonomy_info}," >> "${output_csv}"
     done
     
-    # Print the "ScientificName"
+    # Fetch the "ScientificName" information using Taxid
     taxon=$(efetch -db taxonomy -id "${taxid}" -format xml | xtract -pattern Taxon -element ScientificName)
-    # Check if taxon is empty and set it to "NA" if true
-        if [ -z "$taxon" ]; then
-            taxon="NA"
+    max_attempts=100
+    attempts=0
+
+    while [ "$attempts" -lt "$max_attempts" ]; do
+        if [ -n "$taxon" ]; then
+            break
         fi
-        # Echo without the newline character at the end
-        echo -n "${taxon}," >> "${output_csv}"
+        taxon=$(efetch -db taxonomy -id "${taxid}" -format xml | xtract -pattern Taxon -element ScientificName)
+        attempts=$((attempts + 1))
+    done    
+    
+    
+    # Check if taxon is empty and set it to "NA" if true       
+    if [ -z "$taxon" ]; then
+        taxon="NA"
+        echo "fetching taxon for and ${taxid} was unsuccessful"
+    fi
+    # Echo without the newline character at the end
+    echo -n "${taxon}," >> "${output_csv}"
     
     # Echo GCA with the newline character at the end
     GCA=$(echo "${fname}" | cut -d '_' -f2)
-    echo "GCA_${GCA}" >> "${output_csv}"
+    echo -n "GCA_${GCA}," >> "${output_csv}"
+    echo "$taxid" >> "${output_csv}"
     
-    # Downloading file
-    echo "Downloading the assembly..."
-    wget "$line/$fname"
+    # Downloading assembly file
+    max_attempts=3
+    attempts=0
 
+    while [ "$attempts" -lt "$max_attempts" ]; do
+        wget "$line/$fname"
+
+        if [ $? -eq 0 ]; then
+            echo "File downloaded successfully"
+            break  # Break out of the loop if download is successful
+        else
+            echo "Error: File download failed, retrying..."
+            attempts=$((attempts + 1))
+        fi
+    done
+    
+    if [ "$attempts" -ge "$max_attempts" ]; then
+        echo "Error: Maximum download attempts reached. File download unsuccessful."
+    fi
     echo "Finished processing line."
 done
 
 # Remove temporary files
-rm taxid_line.txt
+#rm taxid_line.txt
 
 
 # Step2: Unzip downloaded files
