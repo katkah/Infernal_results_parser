@@ -73,7 +73,7 @@ def open_and_extract_taxonomy(file_path):
         # File exists, so read CSV file into a DataFrame
         df = pd.read_csv(file_path)
         # Drop the first column. The first column is just numbers => it's an artefact from R script 02
-        df = df.drop(df.columns[0], axis=1)
+        #df = df.drop(df.columns[0], axis=1)
 
         return df
     else:
@@ -413,8 +413,8 @@ def main():
     
     df_hits['E-value'] = df_hits['E-value'].astype(float)
     df_maybe['E-value'] = df_maybe['E-value'].astype(float)
-    df_h = df_hits.sort_values(by=["full_GCA_name", "model", "E-value"], ascending=[True, True, False])
-    df_m = df_maybe.sort_values(by=["full_GCA_name", "model", "E-value"], ascending=[True, True, False])
+    df_h = df_hits.sort_values(by=["full_GCA_name", "model", "E-value"], ascending=[True, True, True])
+    df_m = df_maybe.sort_values(by=["full_GCA_name", "model", "E-value"], ascending=[True, True, True])
     
     df_h.reset_index()
     df_m.reset_index()
