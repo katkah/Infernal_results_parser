@@ -72,7 +72,7 @@ def open_and_extract_taxonomy(file_path):
     if os.path.exists(file_path):
         # File exists, so read CSV file into a DataFrame
         df = pd.read_csv(file_path)
-        # Drop the first column. The first column is just numbers => it's an artefact from R script 02
+        # Drop the first column. The first column is just numbers => it's an artefact from R script 02. 
         #df = df.drop(df.columns[0], axis=1)
 
         return df
@@ -421,12 +421,19 @@ def main():
     
     df_h = add_number_column(df_h)
     df_m = add_number_column(df_m)
-        
+ 
+      
     if df_h.empty: 
         print('Infernal did not find any hits in any of the analyzed genomes!')
+    #remove columns
+    exclude_columns = ['accession1', 'mdl', 'mdl_from', 'mdl_to', 'pass', 'gc', 'bias']
+    df_h = df_h.drop(columns=exclude_columns)
+    df_m = df_m.drop(columns=exclude_columns)
+            
     #remove first column it is index
     df_h = df_h.drop(df_h.columns[0], axis=1)
     df_m = df_m.drop(df_m.columns[0], axis=1)
+
     df_h.to_csv(result_file_hits, index=False, na_rep='NA')
     df_m.to_csv(result_file_maybe, index=False, na_rep='NA')
     
