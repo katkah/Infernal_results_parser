@@ -137,7 +137,7 @@ for row in $(cat taxid_line.txt); do
 done
 
 # Remove temporary files
-#rm taxid_line.txt
+rm taxid_line.txt
 
 
 # Step2: Unzip downloaded files
