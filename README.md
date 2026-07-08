@@ -13,12 +13,31 @@ with taxonomy and flanking sequence context.
 
 ---
 
+## Features
+
+- **Standalone, parameterized parser** — `parse_tables.py` runs independently on any
+  INFERNAL `cmsearch` output via a simple CLI; no Snakemake or R required.
+- **Strand-aware sequence extraction** — minus-strand hits are automatically
+  reverse-complemented and returned in correct 5′→3′ orientation.
+- **Configurable flanking context** — extract each hit plus ±N bp of surrounding
+  genomic sequence (`-r`), with contig-boundary clamping.
+- **Lightweight extraction** — pulls sequences directly from FASTA with `seqtk`,
+  avoiding a separate BLAST-database build step.
+- **Resilient NCBI access** — automatic retries for taxonomy lookups (100×) and
+  genome downloads (3×) for robust large-batch runs.
+- **One-step download + full taxonomy** — produces a single `taxonomy.csv` with the
+  complete lineage (superkingdom → genus).
+- **HPC-ready** — PBS Pro batch scripts with explicit resource requests, tested at
+  genome-batch scale on MetaCentrum.
+
+---
+
 ## Repository contents
 
 ```
 .
 ├── 01_02_download_taxonomy.sh   # Download genomes + build taxonomy.csv from NCBI
-├── 04_pip_infernal_model.sh     # Run cmsearch (all models × all genomes)
+├── 04_pip_infernal_model.sh     # Run cmsearch (adapted from GERONIMO — see Credits)
 ├── 05_run_parse_tables.sh       # PBS wrapper — set paths here, then submit
 ├── parse_tables.py              # Parse and integrate all cmsearch results
 └── README.md

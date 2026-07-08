@@ -1,8 +1,14 @@
 #!/bin/bash
 #
-#PBS -l select=1:ncpus=12:mem=45gb:scratch_local=150gb
-#PBS -l walltime=20:00:00
-#PBS -N 04_pip_infernal
+# Runs INFERNAL cmsearch across all covariance models × all genomes.
+#
+# The cmsearch invocation and output-file naming convention are taken from the
+# GERONIMO pipeline (rule `infernal_search`) by Agata M. Kilar, reused here under
+# the MIT License:
+#   Kilar A.M., Fajkus P., Fajkus J. (2023) GERONIMO: a tool for systematic
+#   retrieval of structural RNAs in a broad evolutionary context.
+#   GigaScience 12, giad080.  https://github.com/amkilar/GERONIMO
+#   Copyright (c) Agata M. Kilar — MIT License.
 
 #Script to run infernal
 # inputs: 
